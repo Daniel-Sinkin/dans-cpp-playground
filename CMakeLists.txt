@@ -1,46 +1,57 @@
 cmake_minimum_required(VERSION 3.20)
 
 if(APPLE AND NOT DEFINED CMAKE_C_COMPILER AND NOT DEFINED CMAKE_CXX_COMPILER)
-    foreach(DANS_TEMPLATE_LLVM_PREFIX IN ITEMS /opt/homebrew/opt/llvm /usr/local/opt/llvm)
-        if(EXISTS "${DANS_TEMPLATE_LLVM_PREFIX}/bin/clang" AND EXISTS "${DANS_TEMPLATE_LLVM_PREFIX}/bin/clang++")
-            set(CMAKE_C_COMPILER "${DANS_TEMPLATE_LLVM_PREFIX}/bin/clang" CACHE FILEPATH "C compiler" FORCE)
-            set(CMAKE_CXX_COMPILER "${DANS_TEMPLATE_LLVM_PREFIX}/bin/clang++" CACHE FILEPATH "C++ compiler" FORCE)
-            message(STATUS "Using LLVM toolchain from ${DANS_TEMPLATE_LLVM_PREFIX}")
+    foreach(DANS_CPP_PLAYGROUND_LLVM_PREFIX IN ITEMS /opt/homebrew/opt/llvm /usr/local/opt/llvm)
+        if(EXISTS "${DANS_CPP_PLAYGROUND_LLVM_PREFIX}/bin/clang" AND EXISTS "${DANS_CPP_PLAYGROUND_LLVM_PREFIX}/bin/clang++")
+            set(CMAKE_C_COMPILER "${DANS_CPP_PLAYGROUND_LLVM_PREFIX}/bin/clang" CACHE FILEPATH "C compiler" FORCE)
+            set(CMAKE_CXX_COMPILER "${DANS_CPP_PLAYGROUND_LLVM_PREFIX}/bin/clang++" CACHE FILEPATH "C++ compiler" FORCE)
+            message(STATUS "Using LLVM toolchain from ${DANS_CPP_PLAYGROUND_LLVM_PREFIX}")
             break()
         endif()
     endforeach()
 endif()
 
-project(dans_template LANGUAGES C CXX)
+project(dans_cpp_playground LANGUAGES C CXX)
 
 if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
 endif()
 
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-set(DANS_CORE_SOURCE_DIR "" CACHE PATH "Optional local checkout of dans-core")
-if(NOT DANS_CORE_SOURCE_DIR AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../dans-core/CMakeLists.txt")
-    set(DANS_CORE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../dans-core" CACHE PATH "Optional local checkout of dans-core" FORCE)
-endif()
+# dans-core: header-only, vendored as plain files under vendor/dans-core.
+add_library(dans_core INTERFACE)
+add_library(dans::core ALIAS dans_core)
+target_compile_features(dans_core INTERFACE cxx_std_23)
+target_include_directories(dans_core SYSTEM INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/dans-core/include
+)
 
-if(DANS_CORE_SOURCE_DIR)
-    add_subdirectory("${DANS_CORE_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/_deps/dans-core-build")
-else()
-    include(FetchContent)
-    FetchContent_Declare(
-        dans_core
-        GIT_REPOSITORY git@github.com:Daniel-Sinkin/dans-core.git
-        GIT_TAG v0.2.0
-    )
-    FetchContent_MakeAvailable(dans_core)
-endif()
+# dans-util: vendored as plain files under vendor/dans-util, built against the
+# vendored dans-core above (its own bundled dans-core was dropped).
+add_library(dans_util STATIC
+    vendor/dans-util/src/chrono.cpp
+    vendor/dans-util/src/dev.cpp
+    vendor/dans-util/src/env.cpp
+    vendor/dans-util/src/fmt.cpp
+    vendor/dans-util/src/random.cpp
+    vendor/dans-util/src/str.cpp
+    vendor/dans-util/src/util.cpp
+)
+add_library(dans::util ALIAS dans_util)
+target_link_libraries(dans_util PUBLIC dans::core)
+target_include_directories(dans_util SYSTEM PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/dans-util/include
+)
+target_precompile_headers(dans_util PRIVATE
+    <dans/pch.hpp>
+)
 
-add_library(dans_template_warnings INTERFACE)
-target_compile_options(dans_template_warnings INTERFACE
+add_library(dans_cpp_playground_warnings INTERFACE)
+target_compile_options(dans_cpp_playground_warnings INTERFACE
     $<$<CXX_COMPILER_ID:Clang,AppleClang,GNU>:
         -Wall
         -Wextra
@@ -79,13 +90,14 @@ target_compile_options(dans_template_warnings INTERFACE
         -Wuseless-cast>
 )
 
-add_executable(dans_template
+add_executable(dans_cpp_playground
     app/main.cpp
 )
-target_link_libraries(dans_template PRIVATE
+target_link_libraries(dans_cpp_playground PRIVATE
+    dans::util
     dans::core
-    dans_template_warnings
+    dans_cpp_playground_warnings
 )
-target_precompile_headers(dans_template PRIVATE
+target_precompile_headers(dans_cpp_playground PRIVATE
     <dans/pch.hpp>
 )
